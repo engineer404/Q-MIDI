@@ -1,7 +1,6 @@
-# MidiPlayer
+# Q-MIDI;
 
-Virtual piano midi file autoplayer for Roblox. I am no longer updating this script, but pull requests are welcome.
-NOTE!!! This belongs to richie0866, i am just upgrading it or simply making it better.
+Q-MIDI is a virtual MIDI file player.
 
 ## Install
 
@@ -22,7 +21,8 @@ The circular button next to the title toggles midi visualization, as complex she
 ## Notes
 
 * UI is built into the project at `src/Assets/ScreenGui.rbxm`, so no assets are loaded
-* HTTP requests only check for updates and download the project
+* HTTP requests only check for updates and download the project\
+* THIS PROJECT WAS IMPORTED FROM A VERY NICE PERSON 'richie0866', I HAVE SIMPLY UPGRADED AND PRACTICED WITH THIS; https://github.com/richie0866
 
 ## Drawbacks
 
