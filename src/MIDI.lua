@@ -49,6 +49,12 @@ local function clean_up_warnings() -- 5.4
 	-- Call this before returning from any publicly callable function
 	-- whenever there's a possibility that a warning might have been printed
 	-- by the function, or by any private functions it might have called.
+	if previous_times > 1 then
+		io.stderr:write('  previous message repeated '
+		 ..previous_times..' times\n')
+	elseif previous_times > 0 then
+		io.stderr:write('  previous message repeated\n')
+	end
 	previous_times = 0
 	previous_warning = ''
 end
@@ -57,13 +63,13 @@ local function warn(str)
 		previous_times = previous_times + 1
 	else
 		clean_up_warnings()
-		getfenv(0).warn(str)
+		io.stderr:write(str,'\n')
 		previous_warning = str
 	end
 end
 local function die(str)
 	clean_up_warnings()
-	warn(str)
+	io.stderr:write(str,'\n')
 	os.exit(1)
 end
 local function round(x) return math.floor(x+0.5) end
@@ -72,7 +78,7 @@ local function readOnly(t)  -- Programming in Lua, page 127
 	local proxy = {}
 	local mt = {
 		__index = t,
-		__newindex = function ()
+		__newindex = function (t, k, v)
 			die("attempt to update a read-only table")
 		end
 	}
@@ -83,13 +89,13 @@ end
 local function dict(a)
 	local d = {}
 	if a == nil then return d end
-	for _,v in ipairs(a) do d[v] = true end
+	for k,v in ipairs(a) do d[v] = true end
 	return d
 end
 
 local function sorted_keys(t)
 	local a = {}
-	for k in pairs(t) do a[#a+1] = k end
+	for k,v in pairs(t) do a[#a+1] = k end
 	table.sort(a)
 	return  a
 end
@@ -188,7 +194,7 @@ local function copy(t)
 	return new_table
 end
 
-local function deepcopy(obj)  -- http://lua-users.org/wiki/CopyTable
+local function deepcopy(object)  -- http://lua-users.org/wiki/CopyTable
 	local lookup_table = {}
 	local function _copy(object)
 		if type(object) ~= "table" then
@@ -203,10 +209,10 @@ local function deepcopy(obj)  -- http://lua-users.org/wiki/CopyTable
 		end
 		return setmetatable(new_table, getmetatable(object))
 	end
-	return _copy(obj)
+	return _copy(object)
 end
 
-local function _decode(trackdata, exclude, include, _event_callback, _exclusive_event_callback, no_eot_magic)
+local function _decode(trackdata, exclude, include, event_callback, exclusive_event_callback, no_eot_magic)
 --[[Decodes MIDI track data into an opus-style list of events.
 The options:
   'exclude' is a dictionary-table of event types which will be ignored
@@ -257,57 +263,57 @@ The options:
 			local param1
 			local param2
 
-			--if command == 246 then  --  0-byte argument
+			if command == 246 then  --  0-byte argument
 				--pass
-			if command == 192 or command == 208 then  --  1-byte arg
+			elseif command == 192 or command == 208 then  --  1-byte arg
 				parameter = string.byte(trackdata, i); i = i+1
-			elseif command ~= 246 then -- 2-byte argument could be BB or 14-bit
+			else -- 2-byte argument could be BB or 14-bit
 				param1 = string.byte(trackdata, i); i = i+1
 				param2 = string.byte(trackdata, i); i = i+1
 			end
 
 			----------------- MIDI events -----------------------
 
-			local scontinue = false
+			local continue = false
 			if command      == 128 then
 				if exclude['note_off'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'note_off', time, channel, param1, param2}
 				end
 			elseif command == 144 then
 				if exclude['note_on'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'note_on', time, channel, param1, param2}
 				end
 			elseif command == 160 then
 				if exclude['key_after_touch'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'key_after_touch',time,channel,param1,param2}
 				end
 			elseif command == 176 then
 				if exclude['control_change'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'control_change',time,channel,param1,param2}
 				end
 			elseif command == 192 then
 				if exclude['patch_change'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'patch_change', time, channel, parameter}
 				end
 			elseif command == 208 then
 				if exclude['channel_after_touch'] then
-					scontinue = true
+					continue = true
 				else
 					E = {'channel_after_touch', time, channel, parameter}
 				end
 			elseif command == 224 then
 				if exclude['pitch_wheel_change'] then
-					scontinue = true
+					continue = true
 				else -- the 2 param bytes are a 14-bit int
 					E = {'pitch_wheel_change', time, channel,
 					 128*param2+param1-8192}
@@ -485,7 +491,7 @@ The options:
 		--     the Status; it's the time code value, from 0 to 127.
 		-- f8 -- MIDI clock.    no data.
 		-- fa -- MIDI start.    no data.
-		-- fb -- MIDI scontinue. no data.
+		-- fb -- MIDI continue. no data.
 		-- fc -- MIDI stop.     no data.
 		-- fe -- Active sense.  no data.
 		-- f4 f5 f9 fd -- unallocated
@@ -576,7 +582,7 @@ local function _encode(events_lol)
 	-- maybe_running_status = not no_running_status  -- unused? 4.7
 	local last_status = -1 -- 4.7
 
-	for _,E in ipairs(events) do
+	for k,E in ipairs(events) do
 		-- get rid of the two pop's and increase the other E[] indices by two
 		if not E then break end
 
@@ -973,7 +979,7 @@ function M.concatenate_scores(scores)
 			if itrack > #output_score then -- new output track if doesn't exist
 				output_score[#output_score+1] = {}
 			end
-			for _,event in ipairs(input_score[itrack]) do
+			for k,event in ipairs(input_score[itrack]) do
 				local new_event = copy(event)
 				new_event[2] = new_event[2] + delta_ticks
 				table.insert(output_score[itrack], new_event)
@@ -992,7 +998,7 @@ function M.grep(score, t)
 	local channels = dict(t)
 	local itrack = 2 while itrack <= #score do
 		new_score[itrack] = {}
-		for _,event in ipairs(score[itrack]) do
+		for k,event in ipairs(score[itrack]) do
 			local channel_index = M.Event2channelindex[event[1]]
 			if channel_index then
 				if channels[event[channel_index]] then
@@ -1011,11 +1017,11 @@ function M.merge_scores(scores)
 	local output_score = {1000,}
 	local channels_so_far = {}
 	local all_channels = dict{0,1,2,3,4,5,6,7,8,10,11,12,13,14,15}
-	for _,input_score in ipairs(consistentise_ticks(scores)) do -- 3.6
+	for ks,input_score in ipairs(consistentise_ticks(scores)) do -- 3.6
 		local new_stats = M.score2stats(input_score)
 		local new_channels = dict(new_stats['channels_total']) -- 4.2 dict
 		new_channels[9] = nil  -- 2.8 cha9 must remain cha9 (in GM)
-		for _,channel in ipairs(sorted_keys(new_channels)) do  -- 4.2 to catch 0
+		for j,channel in ipairs(sorted_keys(new_channels)) do  -- 4.2 to catch 0
 			if channels_so_far[channel] then
 				local free_channels = copy(all_channels)
 				for k,v in pairs(channels_so_far) do
@@ -1033,7 +1039,7 @@ function M.merge_scores(scores)
 					break
 				end
 				for itrack = 2,#input_score do
-					for _,input_event in ipairs(input_score[itrack]) do
+					for k3,input_event in ipairs(input_score[itrack]) do
 						local ci = M.Event2channelindex[input_event[1]]
 						if ci and input_event[ci]==channel then
 							input_event[ci] = free_channel
@@ -1054,9 +1060,9 @@ end
 function M.mix_opus_tracks(input_tracks) -- 5.5
 	-- must convert each track to absolute times !
 	local output_score = {1000, {}}
-	for _,input_track in ipairs(input_tracks) do -- 5.8
+	for ks,input_track in ipairs(input_tracks) do -- 5.8
 		local input_score = M.opus2score({1000, input_track})
-		for _,event in ipairs(input_score[2]) do
+		for k,event in ipairs(input_score[2]) do
 			table.insert(output_score[2], event)
 		end
 	end
@@ -1067,9 +1073,9 @@ end
 
 function M.mix_scores(input_scores)
 	local output_score = {1000, {}}
-	for _,input_score in ipairs(consistentise_ticks(input_scores)) do -- 3.6
+	for ks,input_score in ipairs(consistentise_ticks(input_scores)) do -- 3.6
 	   	for itrack = 2,#input_score do
-			for _,event in ipairs(input_score[itrack]) do
+			for k,event in ipairs(input_score[itrack]) do
 				table.insert(output_score[2], event)
 			end
 		end
@@ -1097,10 +1103,10 @@ function M.midi2opus(s)
 	-- [length, format, tracks_expected, ticks] = struct.unpack(
 	--  '>IHHH', bytes(my_midi[4:14]))  is this 10 bytes or 14 ?
 	-- NOT 2+4+4+4 grrr...   'MHhd'+4+2+2+2 !
-	local length           = fourbytes2int(string.sub(s,i,i+3)); i = i+4
-	local _format          = twobytes2int(string.sub(s,i,i+1)); i = i+2
-	local _tracks_expected = twobytes2int(string.sub(s,i,i+1)); i = i+2
-	local ticks            = twobytes2int(string.sub(s,i,i+1)); i = i+2
+	local length          = fourbytes2int(string.sub(s,i,i+3)); i = i+4
+	local format          = twobytes2int(string.sub(s,i,i+1)); i = i+2
+	local tracks_expected = twobytes2int(string.sub(s,i,i+1)); i = i+2
+	local ticks           = twobytes2int(string.sub(s,i,i+1)); i = i+2
 	if length ~= 6 then
 		warn("midi2opus: midi header length was "..tostring(length).." instead of 6")
 		clean_up_warnings()
@@ -1131,6 +1137,29 @@ end
 
 function M.midi2score(midi)
 	return M.opus2score(M.midi2opus(midi))
+end
+
+function M.play_score(score)
+	if not score then return end
+	local midi
+	if M.score_type(score) == 'opus' then
+		midi = M.opus2midi(score)
+	else
+		midi = M.score2midi(score)
+	end
+	local posix  -- 6.0 in lua5.2 require posix returns the posix table
+	pcall(function() posix = require 'posix' end)
+	if posix and posix.fork then   -- 4.2
+		local pid = posix.fork()
+        if pid == 0 then
+			local p = assert(io.popen("aplaymidi -", 'w'))  -- background
+            p:write(midi) ; p:close() ; os.exit(0)
+        end
+	else
+		local fn = os.tmpname()
+		local fh = assert(io.open(fn, 'w'));  fh:write(midi);  fh:close()
+		os.execute("aplaymidi "..fn..' ; rm '..fn..' &')
+	end
 end
 
 function M.opus2midi(opus)
@@ -1223,7 +1252,7 @@ function M.score2opus(score)
 		local score_track = score[itrack]
 		local time2events = {}
 		local k,scoreevent; for k,scoreevent in ipairs(score_track) do
-			local scontinue = false
+			local continue = false
 			if scoreevent[1] == 'note' then
 				local note_on_event = {'note_on',scoreevent[2],
 				 scoreevent[4],scoreevent[5],scoreevent[6]}
@@ -1239,9 +1268,9 @@ function M.score2opus(score)
 				else
 				   time2events[note_off_event[2]] = {note_off_event,}
 				end
-				scontinue = true
+				continue = true
 			end
-			if not scontinue then
+			if not continue then
 				if time2events[scoreevent[2]] then
 					table.insert(time2events[scoreevent[2]], scoreevent)
 				else
@@ -1596,7 +1625,7 @@ function M.timeshift(...)
 		else
 			local new_track = {} -- 4.7
 			for k,event in ipairs(score[i]) do
-				local scontinue = false
+				local continue = false
 				local new_event = copy(event) -- 4.7
 				if new_event[2] >= from_time then
 					-- 4.1 must not rightshift set_tempo
@@ -1604,9 +1633,9 @@ function M.timeshift(...)
 						new_event[2] = new_event[2] + shift
 					end
 				elseif (shift < 0) and (new_event[2] >= (from_time+shift)) then
-					scontinue = true
+					continue = true
 				end
-				if not scontinue then
+				if not continue then
 					new_track[#new_track+1] = new_event
 				end
 			end
@@ -1687,7 +1716,7 @@ return M
 
 -- http://lua-users.org/wiki/ModuleDefinition
 -- http://lua-users.org/wiki/LuaModuleFunctionCritiqued
---[=[
+--[[
 
 =pod
 
@@ -2089,4 +2118,4 @@ Peter J Billam, http://www.pjb.com.au/comp/contact.html
 
 =cut
 
-]=]
+]]
